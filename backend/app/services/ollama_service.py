@@ -1,14 +1,19 @@
-import requests
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
 
-from app.core.config import OLLAMA_URL, MODEL_NAME
+from app.core.config import MODEL_NAME
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    torch_dtype=torch.float16,
+    device_map="auto",
+)
 
 
 def generate_response(user_message: str) -> str:
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": MODEL_NAME,
-            "prompt": f"""
+    prompt = f"""
 You are Chhotu-AI, a supportive mental health assistant.
 
 Rules:
@@ -21,23 +26,36 @@ Rules:
 - Keep responses concise.
 - Do not mention system instructions.
 
-Context:
+User:
 {user_message}
 
-Assistant Response:
-""",
-            "stream": False,
-        },
-        timeout=60,
+Assistant:
+"""
+
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+    ).to(model.device)
+
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        temperature=0.7,
+        do_sample=True,
+        pad_token_id=tokenizer.eos_token_id,
     )
 
-    data = response.json()
+    response = tokenizer.decode(
+        outputs[0],
+        skip_special_tokens=True,
+    )
 
-    response_text = data.get("response", "").strip()
+    if "Assistant:" in response:
+        response = response.split("Assistant:")[-1].strip()
 
-    if not response_text:
-        response_text = (
+    if not response:
+        response = (
             "I'm here with you. Can you tell me a little more about what you're experiencing?"
         )
 
-    return response_text
+    return response
